@@ -1,31 +1,24 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace Stock
 {
     public class StockBroker
     {
         public string BrokerName { get; set; }
-
-        public List<Stock> stocks =
-            new List<Stock>();
-
-        private readonly string destPath =
+        public List<Stock> stocks = new List<Stock>();
+        readonly string destPath =
             Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 "Lab1_Output.txt");
-
-        private static readonly object fileLock =
-            new object();
-
         public string titles =
             "Broker".PadRight(10) +
             "Stock".PadRight(15) +
             "Value".PadRight(10) +
             "Changes".PadRight(10) +
             "Date and Time";
-
         public StockBroker(string brokerName)
         {
             BrokerName = brokerName;
@@ -48,17 +41,18 @@ namespace Stock
             stock.StockEvent += EventHandler;
         }
 
-        private void EventHandler(
-            object? sender,
+        public async void EventHandler(
+            object sender,
             StockNotification e)
         {
-            if (sender is not null)
-            {
-                WriteNotification(sender, e);
-            }
+            Stock newStock = (Stock)sender;
+
+            await write(sender, e);
+
+            return;
         }
 
-        private void WriteNotification(
+        public async Task write(
             object sender,
             StockNotification e)
         {
@@ -71,22 +65,16 @@ namespace Stock
 
             try
             {
-                lock (fileLock)
+                using (StreamWriter outputFile =
+                       new StreamWriter(destPath, true))
                 {
-                    using (StreamWriter outputFile =
-                           new StreamWriter(destPath, true))
-                    {
-                        outputFile.WriteLine(message);
-                    }
-
-                    Console.WriteLine(message);
+                    await outputFile.WriteLineAsync(message);
                 }
+
+                Console.WriteLine(message);
             }
             catch (IOException ex)
             {
                 Console.WriteLine(
                     $"Error writing to file: {ex.Message}");
             }
-        }
-    }
-}
