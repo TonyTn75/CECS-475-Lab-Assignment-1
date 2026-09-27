@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 
 namespace Stock
@@ -6,7 +6,6 @@ namespace Stock
     public class Stock
     {
         public event EventHandler<StockNotification>? StockEvent;
-
         private string _name;
         private int _initialValue;
         private int _maxChange;
@@ -15,8 +14,6 @@ namespace Stock
         private int _currentValue;
 
         private readonly Thread _thread;
-        private readonly Random _random = new Random();
-
         public string StockName
         {
             get { return _name; }
@@ -58,12 +55,12 @@ namespace Stock
         {
             _name = name;
             _initialValue = startingValue;
-            _currentValue = startingValue;
+            _currentValue = InitialValue;
             _maxChange = maxChange;
             _threshold = threshold;
             _numChanges = 0;
 
-            _thread = new Thread(Activate);
+            _thread = new Thread(new ThreadStart(Activate));
             _thread.Start();
         }
 
@@ -78,16 +75,12 @@ namespace Stock
 
         public void ChangeStockValue()
         {
-            // Allows the stock to increase or decrease.
-            int change = _random.Next(1, MaxChange + 1);
+            var rand = new Random();
 
-            CurrentValue += change;
+            CurrentValue += rand.Next(1, MaxChange);
             NumChanges++;
 
-            int difference = Math.Abs(
-                CurrentValue - InitialValue);
-
-            if (difference > Threshold)
+            if ((CurrentValue - InitialValue) > Threshold)
             {
                 StockEvent?.Invoke(
                     this,
@@ -97,5 +90,3 @@ namespace Stock
                         NumChanges));
             }
         }
-    }
-}
