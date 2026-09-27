@@ -1,11 +1,19 @@
-using System;
+﻿using System;
 using System.Threading;
+using System.Reactive.Subjects;
 
 namespace Stock
 {
     public class Stock
     {
-        public event EventHandler<StockNotification>? StockEvent;
+        private Subject<StockNotification> stockSubject =
+            new Subject<StockNotification>();
+
+        public IObservable<StockNotification> StockObservable
+        {
+            get { return stockSubject; }
+        }
+
         private string _name;
         private int _initialValue;
         private int _maxChange;
@@ -14,6 +22,7 @@ namespace Stock
         private int _currentValue;
 
         private readonly Thread _thread;
+
         public string StockName
         {
             get { return _name; }
@@ -60,7 +69,9 @@ namespace Stock
             _threshold = threshold;
             _numChanges = 0;
 
-            _thread = new Thread(new ThreadStart(Activate));
+            _thread =
+                new Thread(new ThreadStart(Activate));
+
             _thread.Start();
         }
 
@@ -82,11 +93,12 @@ namespace Stock
 
             if ((CurrentValue - InitialValue) > Threshold)
             {
-                StockEvent?.Invoke(
-                    this,
+                stockSubject.OnNext(
                     new StockNotification(
                         StockName,
                         CurrentValue,
                         NumChanges));
             }
         }
+    }
+}

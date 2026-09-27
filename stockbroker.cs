@@ -1,44 +1,47 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Reactive.Linq;
 
 namespace Stock
 {
     public class StockBroker
     {
         public string BrokerName { get; set; }
-        public List<Stock> stocks = new List<Stock>();
+
+        public List<Stock> stocks =
+            new List<Stock>();
+
         readonly string destPath =
             Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 "Lab1_Output.txt");
+
         public string titles =
             "Broker".PadRight(10) +
             "Stock".PadRight(15) +
             "Value".PadRight(10) +
             "Changes".PadRight(10) +
             "Date and Time";
+
+        private static readonly SemaphoreSlim semaphore =
+            new SemaphoreSlim(1, 1);
+
+        private static int count = 0;
+
         public StockBroker(string brokerName)
         {
             BrokerName = brokerName;
-
-            Console.WriteLine(titles);
-
-            // false means overwrite the old file contents.
-            using (StreamWriter outputFile =
-                   new StreamWriter(destPath, false))
-            {
-                outputFile.WriteLine(titles);
-            }
         }
 
         public void AddStock(Stock stock)
         {
             stocks.Add(stock);
 
-            // Subscribe this broker to the stock event.
-            stock.StockEvent += EventHandler;
+            stock.StockObservable.Subscribe(
+                e => EventHandler(stock, e));
         }
 
         public async void EventHandler(
@@ -56,25 +59,47 @@ namespace Stock
             object sender,
             StockNotification e)
         {
-            string message =
-                $"{BrokerName.PadRight(10)}" +
-                $"{e.StockName.PadRight(15)}" +
-                $"{e.CurrentValue.ToString().PadRight(10)}" +
-                $"{e.NumChanges.ToString().PadRight(10)}" +
-                $"{DateTime.Now}";
+            string line =
+                BrokerName.PadRight(16) +
+                e.StockName.PadRight(16) +
+                Convert.ToString(e.CurrentValue).PadRight(16) +
+                Convert.ToString(e.NumChanges).PadRight(16) +
+                DateTime.Now;
+
+            await semaphore.WaitAsync();
 
             try
             {
+                if (count == 0)
+                {
+                    Console.WriteLine(titles);
+
+                    using (StreamWriter outputFile =
+                           new StreamWriter(destPath, false))
+                    {
+                        await outputFile.WriteLineAsync(titles);
+                    }
+
+                    count++;
+                }
+
                 using (StreamWriter outputFile =
                        new StreamWriter(destPath, true))
                 {
-                    await outputFile.WriteLineAsync(message);
+                    await outputFile.WriteLineAsync(line);
                 }
 
-                Console.WriteLine(message);
+                Console.WriteLine(line);
             }
             catch (IOException ex)
             {
                 Console.WriteLine(
                     $"Error writing to file: {ex.Message}");
             }
+            finally
+            {
+                semaphore.Release();
+            }
+        }
+    }
+}
