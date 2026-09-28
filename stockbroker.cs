@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Reactive.Linq;
 
 namespace Stock
 {
@@ -11,10 +11,11 @@ namespace Stock
     {
         public string BrokerName { get; set; }
 
+        // List of stocks controlled by this broker.
         public List<Stock> stocks =
             new List<Stock>();
 
-        readonly string destPath =
+        private readonly string destPath =
             Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 "Lab1_Output.txt");
@@ -26,10 +27,19 @@ namespace Stock
             "Changes".PadRight(10) +
             "Date and Time";
 
+        // Prevents multiple writes at the same time.
         private static readonly SemaphoreSlim semaphore =
             new SemaphoreSlim(1, 1);
 
+        // Ensures the header prints only once.
         private static int count = 0;
+
+        // Stores asynchronous file-writing tasks.
+        private static readonly List<Task> pendingWrites =
+            new List<Task>();
+
+        private static readonly object taskLock =
+            new object();
 
         public StockBroker(string brokerName)
         {
@@ -40,54 +50,68 @@ namespace Stock
         {
             stocks.Add(stock);
 
+            // Subscribe to the Rx.NET observable.
             stock.StockObservable.Subscribe(
-                e => EventHandler(stock, e));
+                notification =>
+                {
+                    Task writeTask =
+                        EventHandlerAsync(notification);
+
+                    lock (taskLock)
+                    {
+                        pendingWrites.Add(writeTask);
+                    }
+                });
         }
 
-        public async void EventHandler(
-            object sender,
-            StockNotification e)
+        // Handles the Rx.NET notification asynchronously.
+        private async Task EventHandlerAsync(
+            StockNotification notification)
         {
-            Stock newStock = (Stock)sender;
-
-            await write(sender, e);
-
-            return;
+            await WriteAsync(notification);
         }
 
-        public async Task write(
-            object sender,
-            StockNotification e)
+        // Writes the notification to the console and file.
+        private async Task WriteAsync(
+            StockNotification notification)
         {
             string line =
                 BrokerName.PadRight(16) +
-                e.StockName.PadRight(16) +
-                Convert.ToString(e.CurrentValue).PadRight(16) +
-                Convert.ToString(e.NumChanges).PadRight(16) +
+                notification.StockName.PadRight(16) +
+                notification.CurrentValue
+                    .ToString()
+                    .PadRight(16) +
+                notification.NumChanges
+                    .ToString()
+                    .PadRight(16) +
                 DateTime.Now;
 
             await semaphore.WaitAsync();
 
             try
             {
-                if (count == 0)
+                if (Interlocked.CompareExchange(
+                        ref count,
+                        1,
+                        0) == 0)
                 {
                     Console.WriteLine(titles);
 
-                    using (StreamWriter outputFile =
-                           new StreamWriter(destPath, false))
-                    {
-                        await outputFile.WriteLineAsync(titles);
-                    }
+                    using StreamWriter outputFile =
+                        new StreamWriter(
+                            destPath,
+                            false);
 
-                    count++;
+                    await outputFile.WriteLineAsync(
+                        titles);
                 }
 
-                using (StreamWriter outputFile =
-                       new StreamWriter(destPath, true))
-                {
-                    await outputFile.WriteLineAsync(line);
-                }
+                using StreamWriter appendFile =
+                    new StreamWriter(
+                        destPath,
+                        true);
+
+                await appendFile.WriteLineAsync(line);
 
                 Console.WriteLine(line);
             }
@@ -100,6 +124,19 @@ namespace Stock
             {
                 semaphore.Release();
             }
+        }
+
+        // Waits for all asynchronous writes to finish.
+        public static async Task WaitForWritesAsync()
+        {
+            Task[] writes;
+
+            lock (taskLock)
+            {
+                writes = pendingWrites.ToArray();
+            }
+
+            await Task.WhenAll(writes);
         }
     }
 }
