@@ -1,32 +1,51 @@
 using System;
-using System.Threading;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Threading.Tasks;
 
 namespace Stock
 {
     public class Stock
     {
-        private Subject<StockNotification> stockSubject =
-            new Subject<StockNotification>();
+        // Rx.NET Subject used to send stock notifications.
+        private readonly Subject<StockNotification>
+            stockSubject =
+                new Subject<StockNotification>();
 
-        public IObservable<StockNotification> StockObservable
+        // Public observable that brokers subscribe to.
+        public IObservable<StockNotification>
+            StockObservable
         {
-            get { return stockSubject; }
+            get
+            {
+                return stockSubject.AsObservable();
+            }
         }
 
-        private string _name;
-        private int _initialValue;
-        private int _maxChange;
-        private int _threshold;
+        // Name of our stock.
+        private readonly string _name;
+
+        // Starting value of the stock.
+        private readonly int _initialValue;
+
+        // Maximum possible stock change.
+        private readonly int _maxChange;
+
+        // Notification threshold.
+        private readonly int _threshold;
+
+        // Number of stock changes.
         private int _numChanges;
+
+        // Current stock value.
         private int _currentValue;
 
-        private readonly Thread _thread;
+        private readonly Random _random =
+            new Random();
 
         public string StockName
         {
             get { return _name; }
-            set { _name = value; }
         }
 
         public int InitialValue
@@ -37,7 +56,6 @@ namespace Stock
         public int CurrentValue
         {
             get { return _currentValue; }
-            set { _currentValue = value; }
         }
 
         public int MaxChange
@@ -53,7 +71,6 @@ namespace Stock
         public int NumChanges
         {
             get { return _numChanges; }
-            set { _numChanges = value; }
         }
 
         public Stock(
@@ -64,40 +81,51 @@ namespace Stock
         {
             _name = name;
             _initialValue = startingValue;
-            _currentValue = InitialValue;
+            _currentValue = startingValue;
             _maxChange = maxChange;
             _threshold = threshold;
             _numChanges = 0;
-
-            _thread =
-                new Thread(new ThreadStart(Activate));
-
-            _thread.Start();
         }
 
-        public void Activate()
+        // Asynchronously changes the stock every 500 milliseconds.
+        public async Task ActivateAsync()
         {
             for (int i = 0; i < 25; i++)
             {
-                Thread.Sleep(500);
+                // Does not block the thread.
+                await Task.Delay(500);
+
                 ChangeStockValue();
             }
+
+            // Tell Rx.NET that the stock is finished.
+            stockSubject.OnCompleted();
         }
 
+        // Changes the stock value and sends an Rx notification.
         public void ChangeStockValue()
         {
-            var rand = new Random();
+            // Allows the value to increase or decrease.
+            int change = _random.Next(
+                -MaxChange,
+                MaxChange + 1);
 
-            CurrentValue += rand.Next(1, MaxChange);
-            NumChanges++;
+            _currentValue += change;
+            _numChanges++;
 
-            if ((CurrentValue - InitialValue) > Threshold)
+            int difference = Math.Abs(
+                CurrentValue - InitialValue);
+
+            if (difference > Threshold)
             {
-                stockSubject.OnNext(
+                StockNotification notification =
                     new StockNotification(
                         StockName,
                         CurrentValue,
-                        NumChanges));
+                        NumChanges);
+
+                // Send notification to all subscribers.
+                stockSubject.OnNext(notification);
             }
         }
     }
